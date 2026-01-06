@@ -21,12 +21,17 @@ import { createReplyDispatcher } from "../auto-reply/reply/reply-dispatcher.js";
 import type { TypingController } from "../auto-reply/reply/typing.js";
 import { getReplyFromConfig } from "../auto-reply/reply.js";
 import { HEARTBEAT_TOKEN, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
+import {
+  isAudio,
+  transcribeInboundAudio,
+} from "../auto-reply/transcription.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
 import { waitForever } from "../cli/wait.js";
 import { loadConfig } from "../config/config.js";
 import {
   resolveProviderGroupPolicy,
   resolveProviderGroupRequireMention,
+  resolveProviderGroupTranscribeAllAudio,
 } from "../config/group-policy.js";
 import {
   DEFAULT_IDLE_MINUTES,
@@ -897,6 +902,16 @@ export async function monitorWebProvider(
     });
   };
 
+  const resolveGroupTranscribeAllAudioFor = (conversationId: string) => {
+    const groupId =
+      resolveGroupResolution(conversationId)?.id ?? conversationId;
+    return resolveProviderGroupTranscribeAllAudio({
+      cfg,
+      provider: "whatsapp",
+      groupId,
+    });
+  };
+
   const resolveGroupActivationFor = (params: {
     agentId: string;
     sessionKey: string;
@@ -1417,6 +1432,40 @@ export async function monitorWebProvider(
           });
           const requireMention = activation !== "always";
           if (!shouldBypassMention && requireMention && !wasMentioned) {
+            // Auto-transcribe audio in groups even without mention (if enabled)
+            const shouldTranscribeAll =
+              resolveGroupTranscribeAllAudioFor(conversationId);
+            if (
+              shouldTranscribeAll &&
+              isAudio(msg.mediaType) &&
+              msg.mediaPath &&
+              cfg.routing?.transcribeAudio
+            ) {
+              try {
+                const transcribed = await transcribeInboundAudio(
+                  cfg,
+                  {
+                    Body: msg.body,
+                    From: msg.from,
+                    To: msg.to,
+                    MediaPath: msg.mediaPath,
+                    MediaType: msg.mediaType,
+                  },
+                  defaultRuntime,
+                );
+                if (transcribed?.text) {
+                  const senderLabel = msg.senderName ?? msg.senderE164 ?? "Voice note";
+                  await msg.reply(`📝 ${senderLabel}:\n${transcribed.text}`);
+                  logVerbose(
+                    `Auto-transcribed audio in group ${conversationId} (transcribeAllAudio enabled)`,
+                  );
+                }
+              } catch (err) {
+                logVerbose(
+                  `Auto-transcription failed in group ${conversationId}: ${String(err)}`,
+                );
+              }
+            }
             logVerbose(
               `Group message stored for context (no mention detected) in ${conversationId}: ${msg.body}`,
             );

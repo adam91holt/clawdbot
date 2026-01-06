@@ -688,6 +688,7 @@ export const ClawdbotSchema = z.object({
                   z
                     .object({
                       requireMention: z.boolean().optional(),
+                      transcribeAllAudio: z.boolean().optional(),
                     })
                     .optional(),
                 )
@@ -720,6 +721,7 @@ export const ClawdbotSchema = z.object({
           z
             .object({
               requireMention: z.boolean().optional(),
+              transcribeAllAudio: z.boolean().optional(),
             })
             .optional(),
         )

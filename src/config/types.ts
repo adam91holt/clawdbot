@@ -99,6 +99,8 @@ export type WhatsAppConfig = {
     string,
     {
       requireMention?: boolean;
+      /** Auto-transcribe all audio in this group (even without mention). */
+      transcribeAllAudio?: boolean;
     }
   >;
 };
@@ -118,6 +120,8 @@ export type WhatsAppAccountConfig = {
     string,
     {
       requireMention?: boolean;
+      /** Auto-transcribe all audio in this group (even without mention). */
+      transcribeAllAudio?: boolean;
     }
   >;
 };

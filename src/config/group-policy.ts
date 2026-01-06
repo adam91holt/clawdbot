@@ -4,6 +4,7 @@ export type GroupPolicyProvider = "whatsapp" | "telegram" | "imessage";
 
 export type ProviderGroupConfig = {
   requireMention?: boolean;
+  transcribeAllAudio?: boolean;
 };
 
 export type ProviderGroupPolicy = {
@@ -82,4 +83,19 @@ export function resolveProviderGroupRequireMention(params: {
     return requireMentionOverride;
   }
   return true;
+}
+
+export function resolveProviderGroupTranscribeAllAudio(params: {
+  cfg: ClawdbotConfig;
+  provider: GroupPolicyProvider;
+  groupId?: string | null;
+}): boolean {
+  const { groupConfig, defaultConfig } = resolveProviderGroupPolicy(params);
+  if (typeof groupConfig?.transcribeAllAudio === "boolean") {
+    return groupConfig.transcribeAllAudio;
+  }
+  if (typeof defaultConfig?.transcribeAllAudio === "boolean") {
+    return defaultConfig.transcribeAllAudio;
+  }
+  return false;
 }
