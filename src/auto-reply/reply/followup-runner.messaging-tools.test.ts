@@ -27,7 +27,7 @@ vi.mock("../../agents/pi-embedded.js", () => ({
 
 import { createFollowupRunner } from "./followup-runner.js";
 
-const baseQueuedRun = (): FollowupRun =>
+const baseQueuedRun = (messageProvider = "whatsapp"): FollowupRun =>
   ({
     prompt: "hello",
     summaryLine: "hello",
@@ -35,7 +35,7 @@ const baseQueuedRun = (): FollowupRun =>
     run: {
       sessionId: "session",
       sessionKey: "main",
-      messageProvider: "whatsapp",
+      messageProvider,
       sessionFile: "/tmp/session.jsonl",
       workspaceDir: "/tmp",
       config: {},
@@ -94,5 +94,26 @@ describe("createFollowupRunner messaging tool dedupe", () => {
     await runner(baseQueuedRun());
 
     expect(onBlockReply).toHaveBeenCalledTimes(1);
+  });
+
+  it("suppresses replies when a messaging tool sent via the same provider", async () => {
+    const onBlockReply = vi.fn(async () => {});
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "hello world!" }],
+      messagingToolSentTexts: ["different message"],
+      messagingToolSentTools: ["slack"],
+      meta: {},
+    });
+
+    const runner = createFollowupRunner({
+      opts: { onBlockReply },
+      typing: createMockTypingController(),
+      typingMode: "instant",
+      defaultModel: "anthropic/claude-opus-4-5",
+    });
+
+    await runner(baseQueuedRun("slack"));
+
+    expect(onBlockReply).not.toHaveBeenCalled();
   });
 });

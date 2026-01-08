@@ -290,6 +290,8 @@ export type EmbeddedPiRunResult = {
   didSendViaMessagingTool?: boolean;
   // Texts successfully sent via messaging tools during the run.
   messagingToolSentTexts?: string[];
+  // Messaging tool names that successfully sent a message during the run.
+  messagingToolSentTools?: string[];
 };
 
 export type EmbeddedPiCompactResult = {
@@ -737,6 +739,7 @@ export async function compactEmbeddedPiSession(params: {
   sessionId: string;
   sessionKey?: string;
   messageProvider?: string;
+  agentAccountId?: string;
   sessionFile: string;
   workspaceDir: string;
   agentDir?: string;
@@ -842,6 +845,7 @@ export async function compactEmbeddedPiSession(params: {
           },
           sandbox,
           messageProvider: params.messageProvider,
+          agentAccountId: params.agentAccountId,
           sessionKey: params.sessionKey ?? params.sessionId,
           agentDir,
           config: params.config,
@@ -1153,6 +1157,7 @@ export async function runEmbeddedPiAgent(params: {
             },
             sandbox,
             messageProvider: params.messageProvider,
+            agentAccountId: params.agentAccountId,
             sessionKey: params.sessionKey ?? params.sessionId,
             agentDir,
             config: params.config,
@@ -1283,6 +1288,7 @@ export async function runEmbeddedPiAgent(params: {
             unsubscribe,
             waitForCompactionRetry,
             getMessagingToolSentTexts,
+            getMessagingToolSentTools,
             didSendViaMessagingTool,
           } = subscription;
 
@@ -1567,6 +1573,7 @@ export async function runEmbeddedPiAgent(params: {
             },
             didSendViaMessagingTool: didSendViaMessagingTool(),
             messagingToolSentTexts: getMessagingToolSentTexts(),
+            messagingToolSentTools: getMessagingToolSentTools(),
           };
         } finally {
           restoreSkillEnv?.();

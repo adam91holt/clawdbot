@@ -1,5 +1,6 @@
 import type { ClawdbotConfig } from "../../config/config.js";
 import { resolveProviderGroupRequireMention } from "../../config/group-policy.js";
+import { resolveSlackAccount } from "../../slack/accounts.js";
 import type {
   GroupKeyResolution,
   SessionEntry,
@@ -148,7 +149,8 @@ export function resolveGroupRequireMention(params: {
     return true;
   }
   if (provider === "slack") {
-    const channels = cfg.slack?.channels ?? {};
+    const account = resolveSlackAccount({ cfg, accountId: ctx.AccountId });
+    const channels = account.channels ?? {};
     const keys = Object.keys(channels);
     if (keys.length === 0) return true;
     const channelId = groupId?.trim();

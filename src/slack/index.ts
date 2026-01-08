@@ -13,6 +13,12 @@ export {
   sendSlackMessage,
   unpinSlackMessage,
 } from "./actions.js";
+export {
+  listEnabledSlackAccounts,
+  listSlackAccountIds,
+  resolveDefaultSlackAccountId,
+  resolveSlackAccount,
+} from "./accounts.js";
 export { monitorSlackProvider } from "./monitor.js";
 export { probeSlack } from "./probe.js";
 export { sendMessageSlack } from "./send.js";

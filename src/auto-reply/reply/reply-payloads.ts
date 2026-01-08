@@ -50,3 +50,16 @@ export function filterMessagingToolDuplicates(params: {
     (payload) => !isMessagingToolDuplicate(payload.text ?? "", sentTexts),
   );
 }
+
+export function shouldSuppressMessagingToolReplies(params: {
+  messageProvider?: string;
+  messagingToolSentTools?: string[];
+}): boolean {
+  const provider = params.messageProvider?.trim().toLowerCase();
+  if (!provider) return false;
+  const sentTools = params.messagingToolSentTools ?? [];
+  if (sentTools.length === 0) return false;
+  return sentTools.some(
+    (tool) => tool.trim().toLowerCase() === provider,
+  );
+}

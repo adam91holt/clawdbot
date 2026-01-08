@@ -151,7 +151,9 @@ export function subscribeEmbeddedPiSession(params: {
     "sessions_send",
   ]);
   const messagingToolSentTexts: string[] = [];
+  const messagingToolSentTools = new Set<string>();
   const pendingMessagingTexts = new Map<string, string>();
+  const pendingMessagingTools = new Map<string, string>();
 
   const ensureCompactionPromise = () => {
     if (!compactionRetryPromise) {
@@ -398,6 +400,7 @@ export function subscribeEmbeddedPiSession(params: {
             action === "threadReply" ||
             toolName === "sessions_send"
           ) {
+            pendingMessagingTools.set(toolCallId, toolName);
             // Field names vary by tool: Discord/Slack use "content", sessions_send uses "message"
             const text =
               (argsRecord.content as string) ?? (argsRecord.message as string);
@@ -460,6 +463,7 @@ export function subscribeEmbeddedPiSession(params: {
 
         // Commit messaging tool text on success, discard on error
         const pendingText = pendingMessagingTexts.get(toolCallId);
+        const pendingTool = pendingMessagingTools.get(toolCallId);
         if (pendingText) {
           pendingMessagingTexts.delete(toolCallId);
           if (!isError) {
@@ -467,6 +471,12 @@ export function subscribeEmbeddedPiSession(params: {
             log.debug(
               `Committed messaging text: tool=${toolName} len=${pendingText.length}`,
             );
+          }
+        }
+        if (pendingTool) {
+          pendingMessagingTools.delete(toolCallId);
+          if (!isError) {
+            messagingToolSentTools.add(pendingTool);
           }
         }
 
@@ -779,6 +789,7 @@ export function subscribeEmbeddedPiSession(params: {
     unsubscribe,
     isCompacting: () => compactionInFlight || pendingCompactionRetry > 0,
     getMessagingToolSentTexts: () => messagingToolSentTexts.slice(),
+    getMessagingToolSentTools: () => Array.from(messagingToolSentTools),
     // Returns true if any messaging tool successfully sent a message.
     // Used to suppress agent's confirmation text (e.g., "Respondi no Telegram!")
     // which is generated AFTER the tool sends the actual answer.
