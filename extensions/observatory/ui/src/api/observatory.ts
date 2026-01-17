@@ -5,6 +5,7 @@ import type {
   TranscriptResponse,
   RunsResponse,
   StatsResponse,
+  AnalyticsResponse,
 } from "@/types"
 
 const API_BASE = "/observatory/api"
@@ -44,6 +45,10 @@ export async function getRuns(): Promise<RunsResponse> {
 
 export async function getStats(): Promise<StatsResponse> {
   return fetchApi<StatsResponse>("/stats")
+}
+
+export async function getAnalytics(range: string = "all"): Promise<AnalyticsResponse> {
+  return fetchApi<AnalyticsResponse>(`/analytics?range=${encodeURIComponent(range)}`)
 }
 
 export async function getConfig(): Promise<Record<string, unknown>> {

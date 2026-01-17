@@ -18,6 +18,7 @@ interface LogEntry {
   parsed?: Record<string, unknown>
   agentId?: string
   sessionId?: string
+  subsystem?: string
 }
 
 let eventId = 0
@@ -41,21 +42,50 @@ export function LiveFeed() {
         let message: string | undefined
         let agentId: string | undefined
         let sessionId: string | undefined
+        let subsystem: string | undefined
 
         try {
           parsed = JSON.parse(data)
           if (typeof parsed === "object" && parsed !== null) {
-            level = (parsed.level as string) || (parsed.type as string)
-            message = (parsed.message as string) || (parsed.msg as string)
+            // Handle Clawdbot pino-style log format
+            // Format: {"0": "{\"subsystem\":\"...\"}","1": "actual message", "_meta": {...}}
+            const meta = parsed._meta as Record<string, unknown> | undefined
             
-            // Extract agent/session from context
-            const context = parsed.context as Record<string, unknown> | undefined
-            if (context) {
-              agentId = context.agentId as string
-              sessionId = context.sessionId as string
+            if (meta && typeof parsed["1"] === "string") {
+              // Clawdbot log format
+              message = parsed["1"] as string
+              level = (meta.logLevelName as string)?.toLowerCase()
+              
+              // Parse subsystem from "0" field
+              try {
+                const subsystemData = JSON.parse(parsed["0"] as string)
+                subsystem = subsystemData.subsystem
+              } catch {
+                // Ignore subsystem parse errors
+              }
+              
+              // Extract agent from message patterns
+              if (message) {
+                const agentMatch = message.match(/agent[=:](\w+)/i) || message.match(/agentId[=:](\w+)/i)
+                if (agentMatch) agentId = agentMatch[1]
+                
+                const sessionMatch = message.match(/session[=:]([^\s,]+)/i) || message.match(/sessionId[=:]([^\s,]+)/i)
+                if (sessionMatch) sessionId = sessionMatch[1]
+              }
+            } else {
+              // Fallback: standard log format
+              level = (parsed.level as string) || (parsed.type as string)
+              message = (parsed.message as string) || (parsed.msg as string)
+              
+              // Extract agent/session from context
+              const context = parsed.context as Record<string, unknown> | undefined
+              if (context) {
+                agentId = context.agentId as string
+                sessionId = context.sessionId as string
+              }
             }
             
-            // Try to extract from message
+            // Try to extract agent from message if not found
             if (!agentId && message) {
               const agentMatch = message.match(/agent:(\w+)/i)
               if (agentMatch) agentId = agentMatch[1]
@@ -75,6 +105,7 @@ export function LiveFeed() {
           parsed,
           agentId,
           sessionId,
+          subsystem,
         }
 
         setEvents((prev) => [entry, ...prev].slice(0, 1000))
@@ -314,6 +345,15 @@ export function LiveFeed() {
                             )}
                           >
                             {event.level.slice(0, 5)}
+                          </div>
+                        )}
+
+                        {/* Subsystem */}
+                        {event.subsystem && (
+                          <div className="w-28 shrink-0 px-3 py-2.5 text-xs border-r border-border/50 flex items-center">
+                            <Badge variant="secondary" className="text-xs font-mono truncate">
+                              {event.subsystem}
+                            </Badge>
                           </div>
                         )}
 

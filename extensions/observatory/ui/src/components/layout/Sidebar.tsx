@@ -7,11 +7,13 @@ import {
   Settings,
   Users,
   Telescope,
+  TrendingUp,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/analytics", icon: TrendingUp, label: "Analytics" },
   { to: "/channels", icon: MessagesSquare, label: "Channels" },
   { to: "/sessions", icon: Users, label: "Sessions" },
   { to: "/live", icon: Radio, label: "Live Feed" },
@@ -53,10 +55,27 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="border-t p-4">
+      <div className="border-t p-4 space-y-3">
         <p className="text-xs text-muted-foreground">
           Connected to Clawdbot
         </p>
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-muted-foreground">Shortcuts</p>
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            <div className="flex justify-between">
+              <span>Quick search</span>
+              <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">⌘K</kbd>
+            </div>
+            <div className="flex justify-between">
+              <span>Jump to errors</span>
+              <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">⌘E</kbd>
+            </div>
+            <div className="flex justify-between">
+              <span>Search</span>
+              <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">/</kbd>
+            </div>
+          </div>
+        </div>
       </div>
     </aside>
   )

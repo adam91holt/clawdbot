@@ -145,3 +145,41 @@ export interface TranscriptResponse {
 export interface StatsResponse {
   stats: Stats
 }
+
+// Analytics types
+export interface AgentCostData {
+  agentId: string
+  cost: number
+  tokens: number
+  sessions: number
+}
+
+export interface DayCostData {
+  date: string
+  cost: number
+  tokens: number
+  sessions: number
+}
+
+export interface HourActivityData {
+  hour: string
+  sessions: number
+  messages: number
+  cost: number
+}
+
+export interface TokenDistributionStats {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  totalTokens: number
+  cacheHitRatio: number
+}
+
+export interface AnalyticsResponse {
+  costByAgent: AgentCostData[]
+  costByDay: DayCostData[]
+  hourlyActivity: HourActivityData[]
+  tokenDistribution: TokenDistributionStats
+}

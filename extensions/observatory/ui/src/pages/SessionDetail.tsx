@@ -29,7 +29,42 @@ export function SessionDetail() {
     refetchInterval: 10000,
   })
 
-  const messages = transcriptData?.messages || []
+  // Transform transcript entries to message format
+  const messages = (transcriptData?.messages || [])
+    .filter((entry: any) => entry.type === "message" && entry.message)
+    .map((entry: any) => {
+      const msg = entry.message
+      // Transform content types: toolCall -> tool_use, toolResult -> tool_result
+      let content = msg.content
+      if (Array.isArray(content)) {
+        content = content.map((c: any) => {
+          if (c.type === "toolCall") {
+            return { ...c, type: "tool_use", input: c.arguments }
+          }
+          if (c.type === "toolResult") {
+            return { ...c, type: "tool_result" }
+          }
+          return c
+        })
+      }
+      // Transform usage format
+      const usage = msg.usage ? {
+        input_tokens: msg.usage.input || 0,
+        output_tokens: msg.usage.output || 0,
+        cache_creation_input_tokens: msg.usage.cacheWrite || 0,
+        cache_read_input_tokens: msg.usage.cacheRead || 0,
+      } : undefined
+      // Extract cost
+      const cost = msg.usage?.cost?.total || 0
+      
+      return {
+        ...msg,
+        content,
+        usage,
+        cost,
+        timestamp: entry.timestamp,
+      }
+    })
 
   // Calculate totals
   const totals = messages.reduce(
@@ -79,7 +114,8 @@ export function SessionDetail() {
   }
 
   const totalTokens = totals.inputTokens + totals.outputTokens
-  const cacheHitRate = totalTokens > 0 ? (totals.cacheRead / totalTokens) * 100 : 0
+  const totalInput = totals.inputTokens + totals.cacheRead
+  const cacheHitRate = totalInput > 0 ? (totals.cacheRead / totalInput) * 100 : 0
 
   return (
     <div className="space-y-6">
@@ -102,6 +138,14 @@ export function SessionDetail() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate(`/sessions/${agentId}/${sessionId}/trace`)}
+          >
+            <TrendingUp className="h-4 w-4 mr-2" />
+            View Trace
+          </Button>
           <Button
             variant="outline"
             size="sm"

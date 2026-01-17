@@ -1,0 +1,22 @@
+{
+  "name": "@clawdbot/observatory",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Agent Command Center & Firehose Logger",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "build:ui": "cd ui && npm install && npm run build"
+  },
+  "dependencies": {
+    "tail": "^2.2.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/tail": "^2.2.3",
+    "typescript": "^5.5.0"
+  },
+  "clawdbot": {
+    "extensions": ["./src/index.ts"]
+  }
+}

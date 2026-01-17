@@ -166,6 +166,9 @@ export function Dashboard() {
         </Card>
       </div>
 
+      {/* Error Alert Banner */}
+      {/* TODO: Add real error detection from logs/sessions */}
+      
       {/* Recent Activity Stats */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
