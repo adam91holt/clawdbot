@@ -70,6 +70,20 @@ function parseUserMessage(content: string): ParsedUserMessage {
   return result
 }
 
+// Mask phone numbers for privacy: +64273938855 -> +64•••8855
+function maskPhoneNumber(phone: string): string {
+  // Match international format: +XX followed by digits
+  const match = phone.match(/^(\+\d{1,3})(\d+)(\d{4})$/)
+  if (match) {
+    return `${match[1]}•••${match[3]}`
+  }
+  // Fallback: mask middle portion
+  if (phone.length > 6) {
+    return phone.slice(0, 3) + '•••' + phone.slice(-4)
+  }
+  return phone
+}
+
 // Component to render parsed user messages nicely
 function UserMessageContent({ content }: { content: string }) {
   const [showSystemLogs, setShowSystemLogs] = useState(false)
@@ -149,7 +163,7 @@ function UserMessageContent({ content }: { content: string }) {
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-sm">
             <span className="text-lg">{channelIcons[parsed.chatMessage.channel] || '💬'}</span>
-            <span className="font-medium">{parsed.chatMessage.sender}</span>
+            <span className="font-medium">{maskPhoneNumber(parsed.chatMessage.sender)}</span>
             <span className="text-xs text-muted-foreground font-mono">
               {parsed.chatMessage.timestamp.split('T')[1]?.replace('Z', '') || parsed.chatMessage.timestamp}
             </span>
