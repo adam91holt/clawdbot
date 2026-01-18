@@ -39,6 +39,9 @@ export interface Session {
   sessionKey: string
   sessionId: string
   updatedAt: number
+  archived?: boolean
+  archivedAt?: number
+  archiveReason?: string
 }
 
 // Message types
