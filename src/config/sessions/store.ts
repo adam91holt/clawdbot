@@ -341,8 +341,9 @@ export async function updateLastRoute(params: {
   to?: string;
   accountId?: string;
   deliveryContext?: DeliveryContext;
+  groupName?: string;
 }) {
-  const { storePath, sessionKey, channel, to, accountId } = params;
+  const { storePath, sessionKey, channel, to, accountId, groupName } = params;
   return await withSessionStoreLock(storePath, async () => {
     const store = loadSessionStore(storePath);
     const existing = store[sessionKey];
@@ -368,6 +369,7 @@ export async function updateLastRoute(params: {
       lastChannel: normalized.lastChannel,
       lastTo: normalized.lastTo,
       lastAccountId: normalized.lastAccountId,
+      ...(groupName ? { subject: groupName } : {}),
     });
     store[sessionKey] = next;
     await saveSessionStoreUnlocked(storePath, store);

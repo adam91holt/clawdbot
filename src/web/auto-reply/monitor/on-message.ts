@@ -102,6 +102,7 @@ export function createWebOnMessageHandler(params: {
         channel: "whatsapp",
         to: conversationId,
         accountId: route.accountId,
+        groupName: msg.groupSubject,
         warn: params.replyLogger.warn.bind(params.replyLogger),
       });
 

@@ -20,6 +20,7 @@ export function updateLastRouteInBackground(params: {
   channel: "whatsapp";
   to: string;
   accountId?: string;
+  groupName?: string;
   warn: (obj: unknown, msg: string) => void;
 }) {
   const storePath = resolveStorePath(params.cfg.session?.store, {
@@ -33,6 +34,7 @@ export function updateLastRouteInBackground(params: {
       to: params.to,
       accountId: params.accountId,
     },
+    groupName: params.groupName,
   }).catch((err) => {
     params.warn(
       {
