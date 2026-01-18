@@ -15,6 +15,7 @@ export function registerAgentCommands(program: Command, args: { agentChannelOpti
     .command("agent")
     .description("Run an agent turn via the Gateway (use --local for embedded)")
     .requiredOption("-m, --message <text>", "Message body for the agent")
+    .option("-a, --agent <id>", "Agent ID to use (from agents.list config)")
     .option("-t, --to <number>", "Recipient number in E.164 used to derive the session key")
     .option("--session-id <id>", "Use an explicit session id")
     .option("--thinking <level>", "Thinking level: off | minimal | low | medium | high")
@@ -23,6 +24,7 @@ export function registerAgentCommands(program: Command, args: { agentChannelOpti
       "--channel <channel>",
       `Delivery channel: ${args.agentChannelOptions} (default: ${DEFAULT_CHAT_CHANNEL})`,
     )
+    .option("--target <target>", "Send agent reply to this target with --channel")
     .option(
       "--local",
       "Run the embedded agent locally (requires model provider API keys in your shell)",
@@ -44,6 +46,8 @@ export function registerAgentCommands(program: Command, args: { agentChannelOpti
         `
 Examples:
   clawdbot agent --to +15555550123 --message "status update"
+  clawdbot agent --agent dot --message "ping" --channel whatsapp --target "+15555550123"
+  clawdbot agent --agent dot --message "Process issues" --deliver
   clawdbot agent --session-id 1234 --message "Summarize inbox" --thinking medium
   clawdbot agent --to +15555550123 --message "Trace logs" --verbose on --json
   clawdbot agent --to +15555550123 --message "Summon reply" --deliver

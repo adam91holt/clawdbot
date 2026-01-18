@@ -31,6 +31,7 @@ type GatewayAgentResponse = {
 
 export type AgentCliOpts = {
   message: string;
+  agent?: string;
   to?: string;
   sessionId?: string;
   thinking?: string;
@@ -39,6 +40,7 @@ export type AgentCliOpts = {
   timeout?: string;
   deliver?: boolean;
   channel?: string;
+  target?: string;
   bestEffortDeliver?: boolean;
   lane?: string;
   runId?: string;
@@ -95,22 +97,82 @@ function formatPayloadForLog(payload: {
   return lines.join("\n").trimEnd();
 }
 
+function buildGatewaySendRequests(payload: {
+  text?: string;
+  mediaUrl?: string | null;
+  mediaUrls?: string[];
+}): Array<{ message: string; mediaUrl?: string }> {
+  const text = typeof payload.text === "string" ? payload.text.trimEnd() : "";
+  const singleMedia =
+    typeof payload.mediaUrl === "string" && payload.mediaUrl.trim()
+      ? payload.mediaUrl.trim()
+      : undefined;
+  const media = (payload.mediaUrls ?? (singleMedia ? [singleMedia] : []))
+    .map((url) => url.trim())
+    .filter(Boolean);
+
+  if (media.length === 0) {
+    if (!text.trim()) return [];
+    return [{ message: text }];
+  }
+
+  const firstMessage = text.trim() ? text : " ";
+  const requests: Array<{ message: string; mediaUrl?: string }> = [
+    { message: firstMessage, mediaUrl: media[0] },
+  ];
+  for (const url of media.slice(1)) {
+    requests.push({ message: " ", mediaUrl: url });
+  }
+  return requests;
+}
+
+async function sendGatewayPayloads(params: {
+  payloads: AgentGatewayResult["payloads"];
+  channel: string;
+  target: string;
+  timeoutMs: number;
+}) {
+  const payloads = params.payloads ?? [];
+  for (const payload of payloads) {
+    const requests = buildGatewaySendRequests(payload ?? {});
+    for (const request of requests) {
+      await callGateway<{ messageId: string }>({
+        method: "send",
+        params: {
+          to: params.target,
+          message: request.message,
+          mediaUrl: request.mediaUrl,
+          channel: params.channel,
+          idempotencyKey: randomIdempotencyKey(),
+        },
+        timeoutMs: params.timeoutMs,
+        clientName: GATEWAY_CLIENT_NAMES.CLI,
+        mode: GATEWAY_CLIENT_MODES.CLI,
+      });
+    }
+  }
+}
+
 export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: RuntimeEnv) {
   const body = (opts.message ?? "").trim();
   if (!body) throw new Error("Message (--message) is required");
-  if (!opts.to && !opts.sessionId) {
-    throw new Error("Pass --to <E.164> or --session-id to choose a session");
+  if (!opts.to && !opts.sessionId && !opts.agent) {
+    throw new Error("Pass --agent <id>, --to <E.164>, or --session-id to choose a session");
   }
 
   const cfg = loadConfig();
   const timeoutSeconds = parseTimeoutSeconds({ cfg, timeout: opts.timeout });
   const gatewayTimeoutMs = Math.max(10_000, (timeoutSeconds + 30) * 1000);
 
-  const sessionKey = resolveGatewaySessionKey({
-    cfg,
-    to: opts.to,
-    sessionId: opts.sessionId,
-  });
+  // If --agent is provided, build a session key for that agent
+  const agentId = opts.agent?.trim() || undefined;
+  let sessionKey = agentId
+    ? `agent:${agentId}:main`
+    : resolveGatewaySessionKey({
+        cfg,
+        to: opts.to,
+        sessionId: opts.sessionId,
+      });
 
   const channel = normalizeMessageChannel(opts.channel) ?? DEFAULT_CHAT_CHANNEL;
   const idempotencyKey = opts.runId?.trim() || randomIdempotencyKey();
@@ -126,6 +188,7 @@ export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: Runtim
         method: "agent",
         params: {
           message: body,
+          agentId,
           to: opts.to,
           sessionId: opts.sessionId,
           sessionKey,
@@ -144,13 +207,24 @@ export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: Runtim
       }),
   );
 
+  const result = response?.result;
+  const payloads = result?.payloads ?? [];
+  const target = typeof opts.target === "string" ? opts.target.trim() : "";
+  const hasRoutingTarget = Boolean(target);
+  const hasRoutingChannel = typeof opts.channel === "string" && opts.channel.trim().length > 0;
+  if (hasRoutingTarget && hasRoutingChannel) {
+    await sendGatewayPayloads({
+      payloads,
+      channel,
+      target,
+      timeoutMs: gatewayTimeoutMs,
+    });
+  }
+
   if (opts.json) {
     runtime.log(JSON.stringify(response, null, 2));
     return response;
   }
-
-  const result = response?.result;
-  const payloads = result?.payloads ?? [];
 
   if (payloads.length === 0) {
     runtime.log(response?.summary ? String(response.summary) : "No reply from agent.");
