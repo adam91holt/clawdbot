@@ -197,17 +197,43 @@ export function register(api: ClawdbotPluginApi) {
     }
 
     // 4. GET /observatory/api/transcript?agentId=...&sessionId=...
+    // Also supports: ?sessionKey=agent:scout:subagent:uuid (looks up actual sessionId from registry)
     // Get full chat history for a specific session
     if (url.pathname === '/observatory/api/transcript') {
-      const agentId = url.searchParams.get('agentId');
-      const sessionId = url.searchParams.get('sessionId');
+      let agentId = url.searchParams.get('agentId');
+      let sessionId = url.searchParams.get('sessionId');
+      const sessionKey = url.searchParams.get('sessionKey');
+
+      // If sessionKey provided, parse it and look up actual sessionId
+      if (sessionKey) {
+        const keyMatch = sessionKey.match(/^agent:([^:]+):/);
+        if (keyMatch) {
+          agentId = keyMatch[1];
+          // Look up the actual sessionId from sessions.json
+          const sessionsJsonPath = path.join(os.homedir(), `.clawdbot/agents/${agentId}/sessions/sessions.json`);
+          try {
+            const sessionsContent = await fs.promises.readFile(sessionsJsonPath, 'utf-8');
+            const sessionsData = JSON.parse(sessionsContent);
+            const sessionEntry = sessionsData[sessionKey];
+            if (sessionEntry?.sessionId) {
+              sessionId = sessionEntry.sessionId;
+            }
+          } catch (e) {
+            // Fall back to trying the UUID from the key directly
+            const uuidMatch = sessionKey.match(/([a-f0-9-]{36})$/);
+            if (uuidMatch) {
+              sessionId = uuidMatch[1];
+            }
+          }
+        }
+      }
 
       if (!agentId || !sessionId) {
         sendError(res, 'Missing agentId or sessionId', 400);
         return true;
       }
 
-      const agent = api.config.agents.list.find(a => a.id === agentId);
+      const agent = api.config.agents?.list?.find(a => a.id === agentId);
       if (!agent) {
         sendError(res, 'Agent not found', 404);
         return true;
@@ -216,9 +242,9 @@ export function register(api: ClawdbotPluginApi) {
       // Try multiple locations for transcript files
       const transcriptPaths = [
         path.join(os.homedir(), `.clawdbot/agents/${agentId}/sessions/${sessionId}.jsonl`),
-        path.join(agent.workspace, `sessions/${sessionId}.jsonl`),
+        path.join(agent.workspace || '', `sessions/${sessionId}.jsonl`),
       ];
-      
+
       let found = false;
       for (const transcriptPath of transcriptPaths) {
         try {
@@ -229,7 +255,7 @@ export function register(api: ClawdbotPluginApi) {
               try { return JSON.parse(line); } catch (e) { return null; }
             })
             .filter(Boolean);
-          
+
           sendJson(res, { messages });
           found = true;
           break;
@@ -240,7 +266,7 @@ export function register(api: ClawdbotPluginApi) {
           }
         }
       }
-      
+
       if (!found) {
         sendError(res, 'Transcript not found', 404);
       }
@@ -254,7 +280,25 @@ export function register(api: ClawdbotPluginApi) {
       try {
         const content = await fs.promises.readFile(runsPath, 'utf-8');
         const data = JSON.parse(content);
-        sendJson(res, data);
+
+        // Transform backend fields to match UI expectations
+        const transformedRuns: Record<string, any> = {};
+        for (const [runId, run] of Object.entries(data.runs || {})) {
+          const r = run as any;
+          transformedRuns[runId] = {
+            ...r,
+            // Map endedAt -> completedAt
+            completedAt: r.endedAt || r.completedAt,
+            // Transform outcome.status to outcome.success
+            outcome: r.outcome ? {
+              success: r.outcome.status === 'ok',
+              error: r.outcome.error,
+              result: r.outcome.result,
+            } : undefined,
+          };
+        }
+
+        sendJson(res, { runs: transformedRuns });
       } catch (e: any) {
         if (e.code === 'ENOENT') {
           // Return empty structure if file doesn't exist yet

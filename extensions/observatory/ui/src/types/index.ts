@@ -92,6 +92,10 @@ export interface SubAgentRun {
   }
   startedAt?: number
   completedAt?: number
+  requesterOrigin?: {
+    channel?: string
+    accountId?: string
+  }
 }
 
 export interface RunsResponse {
