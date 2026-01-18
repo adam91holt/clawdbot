@@ -22,6 +22,27 @@ export interface LogEntry {
   label?: string
 }
 
+// Sparkline data point (1 per second)
+export interface SparklinePoint {
+  timestamp: number
+  total: number
+  errors: number
+  warnings: number
+  info: number
+  subagents: number
+}
+
+// Saved filter preset
+export interface SavedFilter {
+  id: string
+  name: string
+  levelFilter: string | null
+  agentFilter: string | null
+  channelFilter: string | null
+  textFilter: string
+  subagentFilter: boolean | null
+}
+
 interface LiveFeedState {
   events: LogEntry[]
   maxEvents: number
@@ -37,6 +58,13 @@ interface LiveFeedState {
   textFilter: string
   expandedIds: number[]
 
+  // New features
+  pinnedIds: number[]
+  savedFilters: SavedFilter[]
+  sparklineData: SparklinePoint[]
+  eventsPerSecond: number
+  correlatedIds: number[]
+
   addEvent: (event: LogEntry) => void
   clearEvents: () => void
   togglePause: () => void
@@ -50,10 +78,47 @@ interface LiveFeedState {
   setChannelFilter: (channel: string | null) => void
   setTextFilter: (text: string) => void
   toggleExpanded: (id: number) => void
+
+  // New actions
+  togglePinned: (id: number) => void
+  saveFilter: (name: string) => void
+  deleteFilter: (id: string) => void
+  applyFilter: (filter: SavedFilter) => void
+  setCorrelatedIds: (ids: number[]) => void
+  clearCorrelation: () => void
 }
 
 let eventIdCounter = 0
 export const getNextEventId = () => ++eventIdCounter
+
+const SPARKLINE_SECONDS = 60
+const SAVED_FILTERS_KEY = "observatory-saved-filters"
+
+function loadSavedFilters(): SavedFilter[] {
+  try {
+    const stored = localStorage.getItem(SAVED_FILTERS_KEY)
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
+
+function persistSavedFilters(filters: SavedFilter[]) {
+  try {
+    localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(filters))
+  } catch {
+    // ignore
+  }
+}
+
+// Track events per second
+let recentEventTimestamps: number[] = []
+function updateEventsPerSecond(): number {
+  const now = Date.now()
+  const oneSecondAgo = now - 1000
+  recentEventTimestamps = recentEventTimestamps.filter(t => t > oneSecondAgo)
+  return recentEventTimestamps.length
+}
 
 export const useLiveFeedStore = create<LiveFeedState>((set, get) => ({
   events: [],
@@ -70,14 +135,67 @@ export const useLiveFeedStore = create<LiveFeedState>((set, get) => ({
   textFilter: "",
   expandedIds: [],
 
+  // New features
+  pinnedIds: [],
+  savedFilters: loadSavedFilters(),
+  sparklineData: [],
+  eventsPerSecond: 0,
+  correlatedIds: [],
+
   addEvent: (event) => {
     if (get().isPaused) return
-    set((state) => ({
-      events: [event, ...state.events].slice(0, state.maxEvents),
-    }))
+
+    const now = Date.now()
+    recentEventTimestamps.push(now)
+    const eventsPerSecond = updateEventsPerSecond()
+
+    // Update sparkline data
+    const currentSecond = Math.floor(now / 1000) * 1000
+    const level = event.level?.toLowerCase()
+    const isError = level === "error" || level === "fatal"
+    const isWarning = level === "warn" || level === "warning"
+    const isInfo = level === "info"
+
+    set((state) => {
+      // Update or create sparkline point for current second
+      let sparklineData = [...state.sparklineData]
+      const lastPoint = sparklineData[sparklineData.length - 1]
+
+      if (lastPoint && lastPoint.timestamp === currentSecond) {
+        // Update existing point
+        sparklineData[sparklineData.length - 1] = {
+          ...lastPoint,
+          total: lastPoint.total + 1,
+          errors: lastPoint.errors + (isError ? 1 : 0),
+          warnings: lastPoint.warnings + (isWarning ? 1 : 0),
+          info: lastPoint.info + (isInfo ? 1 : 0),
+          subagents: lastPoint.subagents + (event.isSubagent ? 1 : 0),
+        }
+      } else {
+        // Create new point
+        sparklineData.push({
+          timestamp: currentSecond,
+          total: 1,
+          errors: isError ? 1 : 0,
+          warnings: isWarning ? 1 : 0,
+          info: isInfo ? 1 : 0,
+          subagents: event.isSubagent ? 1 : 0,
+        })
+        // Keep only last 60 seconds
+        if (sparklineData.length > SPARKLINE_SECONDS) {
+          sparklineData = sparklineData.slice(-SPARKLINE_SECONDS)
+        }
+      }
+
+      return {
+        events: [event, ...state.events].slice(0, state.maxEvents),
+        sparklineData,
+        eventsPerSecond,
+      }
+    })
   },
 
-  clearEvents: () => set({ events: [] }),
+  clearEvents: () => set({ events: [], sparklineData: [] }),
 
   togglePause: () => set((state) => ({ isPaused: !state.isPaused })),
 
@@ -103,6 +221,48 @@ export const useLiveFeedStore = create<LiveFeedState>((set, get) => ({
         : [...state.expandedIds, id],
     }
   }),
+
+  togglePinned: (id) => set((state) => {
+    const has = state.pinnedIds.includes(id)
+    return {
+      pinnedIds: has
+        ? state.pinnedIds.filter((x) => x !== id)
+        : [...state.pinnedIds, id],
+    }
+  }),
+
+  saveFilter: (name) => {
+    const state = get()
+    const newFilter: SavedFilter = {
+      id: crypto.randomUUID(),
+      name,
+      levelFilter: state.levelFilter,
+      agentFilter: state.agentFilter,
+      channelFilter: state.channelFilter,
+      textFilter: state.textFilter,
+      subagentFilter: null, // Will be added when subagentFilter is in main state
+    }
+    const newFilters = [...state.savedFilters, newFilter]
+    persistSavedFilters(newFilters)
+    set({ savedFilters: newFilters })
+  },
+
+  deleteFilter: (id) => set((state) => {
+    const newFilters = state.savedFilters.filter((f) => f.id !== id)
+    persistSavedFilters(newFilters)
+    return { savedFilters: newFilters }
+  }),
+
+  applyFilter: (filter) => set({
+    levelFilter: filter.levelFilter,
+    agentFilter: filter.agentFilter,
+    channelFilter: filter.channelFilter,
+    textFilter: filter.textFilter,
+  }),
+
+  setCorrelatedIds: (ids) => set({ correlatedIds: ids }),
+
+  clearCorrelation: () => set({ correlatedIds: [] }),
 }))
 
 // Check if a session key is a subagent session

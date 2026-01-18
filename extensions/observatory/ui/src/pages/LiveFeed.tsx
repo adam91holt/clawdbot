@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useCallback } from "react"
+import { useMemo, useState, useRef, useCallback, Fragment } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { format, formatDistanceToNow } from "date-fns"
 import { useNavigate } from "react-router-dom"
@@ -27,12 +27,25 @@ import {
   ArrowRight,
   ChevronDown,
   ExternalLink,
+  Pin,
+  PinOff,
+  Save,
+  BookmarkCheck,
+  Gauge,
+  Link2,
 } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
 import { useLiveFeedStore, type LogEntry } from "@/store/live-feed"
 import { getRuns } from "@/api/observatory"
 import { cn, getAgentEmoji } from "@/lib/utils"
@@ -429,27 +442,89 @@ function Timeline({
   )
 }
 
-function StatsCard({ icon: Icon, label, value, color }: {
+// Mini sparkline component for stats cards
+function MiniSparkline({ data, color, height = 20, width = 50 }: {
+  data: number[]
+  color: string
+  height?: number
+  width?: number
+}) {
+  if (data.length < 2) return null
+
+  const max = Math.max(...data, 1)
+  const points = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * width
+    const y = height - (v / max) * height
+    return `${x},${y}`
+  }).join(' ')
+
+  return (
+    <svg width={width} height={height} className="shrink-0">
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+        className={color}
+      />
+    </svg>
+  )
+}
+
+// Highlight search matches in text
+function HighlightedText({ text, search }: { text: string; search: string }) {
+  if (!search || search.length < 2) {
+    return <>{text}</>
+  }
+
+  const regex = new RegExp(`(${search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
+  const parts = text.split(regex)
+
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark key={i} className="bg-yellow-300 dark:bg-yellow-600 text-foreground rounded px-0.5">{part}</mark>
+        ) : (
+          <Fragment key={i}>{part}</Fragment>
+        )
+      )}
+    </>
+  )
+}
+
+function StatsCard({ icon: Icon, label, value, color, sparklineData }: {
   icon: React.ElementType
   label: string
   value: number
   color: string
+  sparklineData?: number[]
 }) {
   return (
     <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-card border">
       <Icon className={cn("h-4 w-4", color)} />
-      <div>
+      <div className="flex-1">
         <div className={cn("text-lg font-bold tabular-nums leading-none", value > 0 && color)}>{value}</div>
         <div className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{label}</div>
       </div>
+      {sparklineData && sparklineData.length > 1 && (
+        <MiniSparkline data={sparklineData} color={color} />
+      )}
     </div>
   )
 }
 
-function LogRow({ event, isSelected, onClick }: {
+function LogRow({ event, isSelected, isPinned, isCorrelated, textFilter, onClick, onPin, onCorrelate }: {
   event: LogEntry
   isSelected: boolean
+  isPinned: boolean
+  isCorrelated: boolean
+  textFilter: string
   onClick: () => void
+  onPin: () => void
+  onCorrelate: () => void
 }) {
   const level = event.level?.toLowerCase()
   const isError = level === "error" || level === "fatal"
@@ -467,10 +542,12 @@ function LogRow({ event, isSelected, onClick }: {
     <div
       onClick={onClick}
       className={cn(
-        "flex items-start font-mono text-[13px] border-b border-border/40 cursor-pointer transition-colors",
+        "flex items-start font-mono text-[13px] border-b border-border/40 cursor-pointer transition-colors group",
         isError && "bg-red-500/5",
         isWarn && "bg-amber-500/5",
         event.isSubagent && !isError && !isWarn && "bg-violet-500/5",
+        isCorrelated && "ring-2 ring-inset ring-cyan-500/50 bg-cyan-500/5",
+        isPinned && "border-l-2 border-l-amber-500",
         isSelected ? "bg-muted" : "hover:bg-muted/50"
       )}
     >
@@ -493,9 +570,10 @@ function LogRow({ event, isSelected, onClick }: {
           {event.channel && <span className="shrink-0 mt-0.5">{getChannelIcon(event.channel)}</span>}
           {event.agentId && (
             <span className={cn(
-              "shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium",
+              "shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium flex items-center gap-1",
               event.isSubagent ? "bg-violet-500/10 text-violet-500" : "bg-indigo-500/10 text-indigo-500"
             )}>
+              <span className="text-xs">{getAgentEmoji(event.agentId)}</span>
               {event.agentId}
             </span>
           )}
@@ -516,11 +594,39 @@ function LogRow({ event, isSelected, onClick }: {
             event.isSubagent ? "text-violet-600 dark:text-violet-400" :
             isInfo ? "text-foreground" : "text-muted-foreground"
           )}>
-            {message}
+            <HighlightedText text={message} search={textFilter} />
           </span>
         </div>
       </div>
-      <div className="w-8 shrink-0 py-2 flex justify-center">
+      <div className="w-16 shrink-0 py-2 flex items-center justify-end gap-1 pr-2">
+        {/* Pin button - only show on hover unless already pinned */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onPin() }}
+          className={cn(
+            "p-1 rounded transition-colors",
+            isPinned
+              ? "text-amber-500 hover:text-amber-600"
+              : "text-muted-foreground/30 hover:text-muted-foreground opacity-0 group-hover:opacity-100"
+          )}
+          title={isPinned ? "Unpin" : "Pin"}
+        >
+          {isPinned ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
+        </button>
+        {/* Correlate button - show if event has sessionId or runId */}
+        {(event.sessionId || event.runId) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onCorrelate() }}
+            className={cn(
+              "p-1 rounded transition-colors",
+              isCorrelated
+                ? "text-cyan-500 hover:text-cyan-600"
+                : "text-muted-foreground/30 hover:text-muted-foreground opacity-0 group-hover:opacity-100"
+            )}
+            title="Find related events"
+          >
+            <Link2 className="h-3.5 w-3.5" />
+          </button>
+        )}
         <ChevronRight className={cn(
           "h-4 w-4 text-muted-foreground/50 transition-transform",
           isSelected && "rotate-90"
@@ -667,17 +773,59 @@ export function LiveFeed() {
     agentFilter,
     channelFilter,
     textFilter,
+    pinnedIds,
+    savedFilters,
+    sparklineData,
+    eventsPerSecond,
+    correlatedIds,
     togglePause,
     setLevelFilter,
     setAgentFilter,
     setChannelFilter,
     setTextFilter,
     clearEvents,
+    togglePinned,
+    saveFilter,
+    deleteFilter,
+    applyFilter,
+    setCorrelatedIds,
+    clearCorrelation,
   } = useLiveFeedStore()
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null)
   const [subagentFilter, setSubagentFilter] = useState<boolean | null>(null)
+  const [filterName, setFilterName] = useState("")
+
+  // Handle log correlation - find all events with same sessionId or runId
+  const handleCorrelate = useCallback((event: LogEntry) => {
+    if (correlatedIds.includes(event.id)) {
+      clearCorrelation()
+      return
+    }
+
+    const relatedIds: number[] = []
+    for (const e of events) {
+      if (
+        (event.sessionId && e.sessionId === event.sessionId) ||
+        (event.runId && e.runId === event.runId) ||
+        (event.childSessionKey && e.childSessionKey === event.childSessionKey) ||
+        (event.parentSessionKey && e.parentSessionKey === event.parentSessionKey)
+      ) {
+        relatedIds.push(e.id)
+      }
+    }
+    setCorrelatedIds(relatedIds)
+  }, [events, correlatedIds, setCorrelatedIds, clearCorrelation])
+
+  // Compute sparkline data per metric from sparklineData in store
+  const sparklines = useMemo(() => {
+    const totals = sparklineData.map(p => p.total)
+    const errors = sparklineData.map(p => p.errors)
+    const warnings = sparklineData.map(p => p.warnings)
+    const subagents = sparklineData.map(p => p.subagents)
+    return { totals, errors, warnings, subagents }
+  }, [sparklineData])
 
   const filteredEvents = useMemo(() => {
     return events.filter((event) => {
@@ -778,12 +926,30 @@ export function LiveFeed() {
       </div>
 
       <div className="flex gap-2 shrink-0 flex-wrap">
-        <StatsCard icon={Activity} label="Events" value={events.length} color="text-blue-500" />
-        <StatsCard icon={AlertTriangle} label="Errors" value={stats.errors} color="text-red-500" />
-        <StatsCard icon={Zap} label="Warnings" value={stats.warnings} color="text-amber-500" />
-        <StatsCard icon={GitBranch} label="Subagent" value={stats.subagents} color="text-violet-500" />
+        <StatsCard icon={Activity} label="Events" value={events.length} color="text-blue-500" sparklineData={sparklines.totals} />
+        <StatsCard icon={AlertTriangle} label="Errors" value={stats.errors} color="text-red-500" sparklineData={sparklines.errors} />
+        <StatsCard icon={Zap} label="Warnings" value={stats.warnings} color="text-amber-500" sparklineData={sparklines.warnings} />
+        <StatsCard icon={GitBranch} label="Subagent" value={stats.subagents} color="text-violet-500" sparklineData={sparklines.subagents} />
         <StatsCard icon={ArrowDownLeft} label="Inbound" value={stats.inbound} color="text-emerald-500" />
         <StatsCard icon={ArrowUpRight} label="Outbound" value={stats.outbound} color="text-sky-500" />
+        {/* Events per second metric */}
+        <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-card border">
+          <Gauge className="h-4 w-4 text-cyan-500" />
+          <div>
+            <div className={cn("text-lg font-bold tabular-nums leading-none", eventsPerSecond > 0 && "text-cyan-500")}>{eventsPerSecond}</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">Events/sec</div>
+          </div>
+        </div>
+        {/* Pinned count */}
+        {pinnedIds.length > 0 && (
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-card border">
+            <Pin className="h-4 w-4 text-amber-500" />
+            <div>
+              <div className="text-lg font-bold tabular-nums leading-none text-amber-500">{pinnedIds.length}</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">Pinned</div>
+            </div>
+          </div>
+        )}
       </div>
 
       <ActiveRunsPanel />
@@ -873,6 +1039,90 @@ export function LiveFeed() {
               </div>
             </>
           )}
+          {/* Saved Filters */}
+          <div className="h-5 w-px bg-border" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 px-2 gap-1">
+                <BookmarkCheck className="h-3 w-3" />
+                <span className="text-xs">Filters</span>
+                {savedFilters.length > 0 && (
+                  <Badge variant="secondary" className="h-4 px-1 text-[10px]">{savedFilters.length}</Badge>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              {savedFilters.length === 0 ? (
+                <div className="p-2 text-xs text-muted-foreground text-center">No saved filters</div>
+              ) : (
+                savedFilters.map((filter) => (
+                  <DropdownMenuItem
+                    key={filter.id}
+                    className="flex items-center justify-between"
+                    onClick={() => applyFilter(filter)}
+                  >
+                    <span className="text-sm">{filter.name}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteFilter(filter.id) }}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </DropdownMenuItem>
+                ))
+              )}
+              {hasFilters && (
+                <>
+                  <DropdownMenuSeparator />
+                  <div className="p-2">
+                    <div className="flex gap-1">
+                      <Input
+                        placeholder="Filter name..."
+                        value={filterName}
+                        onChange={(e) => setFilterName(e.target.value)}
+                        className="h-7 text-xs"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && filterName.trim()) {
+                            saveFilter(filterName.trim())
+                            setFilterName("")
+                          }
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        className="h-7 px-2"
+                        disabled={!filterName.trim()}
+                        onClick={() => {
+                          if (filterName.trim()) {
+                            saveFilter(filterName.trim())
+                            setFilterName("")
+                          }
+                        }}
+                      >
+                        <Save className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Correlation indicator */}
+          {correlatedIds.length > 0 && (
+            <>
+              <div className="h-5 w-px bg-border" />
+              <Badge variant="outline" className="bg-cyan-500/10 text-cyan-600 border-cyan-500/50 gap-1">
+                <Link2 className="h-3 w-3" />
+                {correlatedIds.length} correlated
+                <button onClick={clearCorrelation} className="ml-1 hover:text-cyan-800">
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            </>
+          )}
+
           {hasFilters && (
             <>
               <div className="h-5 w-px bg-border" />
@@ -886,6 +1136,7 @@ export function LiveFeed() {
                   setTextFilter("")
                   setTimeRange(null)
                   setSubagentFilter(null)
+                  clearCorrelation()
                 }}
                 className="h-7 px-2 text-xs text-muted-foreground"
               >
@@ -901,7 +1152,7 @@ export function LiveFeed() {
               <div className="w-[72px] px-3 py-1.5">Time</div>
               <div className="w-[52px] py-1.5">Level</div>
               <div className="flex-1 py-1.5">Message</div>
-              <div className="w-8" />
+              <div className="w-16 py-1.5 pr-2 text-right">Actions</div>
             </div>
             <ScrollArea className="flex-1">
               {filteredEvents.length === 0 ? (
@@ -928,7 +1179,12 @@ export function LiveFeed() {
                     key={event.id}
                     event={event}
                     isSelected={selectedId === event.id}
+                    isPinned={pinnedIds.includes(event.id)}
+                    isCorrelated={correlatedIds.includes(event.id)}
+                    textFilter={textFilter}
                     onClick={() => setSelectedId(selectedId === event.id ? null : event.id)}
+                    onPin={() => togglePinned(event.id)}
+                    onCorrelate={() => handleCorrelate(event)}
                   />
                 ))
               )}
