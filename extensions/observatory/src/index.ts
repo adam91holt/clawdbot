@@ -37,12 +37,35 @@ export function register(api: ClawdbotPluginApi) {
   let statsCache: { stats: any; timestamp: number } | null = null;
   const STATS_CACHE_TTL = 60000; // 60 seconds
 
-  // --- Log Tailing (Live Firehose) --- 
+  // --- Log Tailing (Live Firehose) ---
   const connections = new Set<(line: string) => void>();
   let tail: Tail | null = null;
+  let tailRetry: NodeJS.Timeout | null = null;
+
+  const clearTailRetry = () => {
+    if (!tailRetry) return;
+    clearTimeout(tailRetry);
+    tailRetry = null;
+  };
+
+  const stopTail = () => {
+    clearTailRetry();
+    if (!tail) return;
+    tail.unwatch();
+    tail = null;
+  };
+
+  const scheduleTailRetry = () => {
+    if (tailRetry || connections.size === 0) return;
+    tailRetry = setTimeout(() => {
+      tailRetry = null;
+      setupTail();
+    }, 5000);
+    tailRetry.unref?.();
+  };
 
   const setupTail = () => {
-    if (tail) return;
+    if (tail || connections.size === 0) return;
     let logFile = api.config.logging?.file;
     if (!logFile) {
       const date = new Date().toISOString().split('T')[0];
@@ -50,7 +73,7 @@ export function register(api: ClawdbotPluginApi) {
     }
 
     if (!fs.existsSync(logFile)) {
-      setTimeout(setupTail, 5000);
+      scheduleTailRetry();
       return;
     }
 
@@ -61,10 +84,9 @@ export function register(api: ClawdbotPluginApi) {
     tail.on('error', () => {
       tail?.unwatch();
       tail = null;
-      setTimeout(setupTail, 5000);
+      scheduleTailRetry();
     });
   };
-  setupTail();
 
   // --- Helpers ---
 
@@ -263,8 +285,12 @@ export function register(api: ClawdbotPluginApi) {
       });
       const send = (line: string) => res.write(`data: ${line}\n\n`);
       connections.add(send);
+      setupTail();
       send(JSON.stringify({ type: 'system', message: 'Connected to Observatory API' }));
-      req.on('close', () => connections.delete(send));
+      req.on('close', () => {
+        connections.delete(send);
+        if (connections.size === 0) stopTail();
+      });
       return true;
     }
 
